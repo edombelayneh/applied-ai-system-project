@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -18,6 +19,8 @@ VALID_FREQUENCIES = {"once", "daily", "weekly"}
 
 EDITABLE_FIELDS = {"title", "duration_minutes", "priority", "time_of_day", "completed", "frequency"}
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Owner:
@@ -34,8 +37,10 @@ class Owner:
         rather than silently producing a broken schedule later.
         """
         if not (0 < self.available_hours <= 16):
+            logger.warning("Invalid available_hours=%.1f for owner '%s'", self.available_hours, self.name)
             raise ValueError("available_hours must be between 0 and 16")
         if not (0 <= self.task_buffer_minutes <= 30):
+            logger.warning("Invalid task_buffer_minutes=%d for owner '%s'", self.task_buffer_minutes, self.name)
             raise ValueError("task_buffer_minutes must be between 0 and 30")
 
     def filter_tasks(
@@ -125,12 +130,16 @@ class Pet:
     def add_task(self, task: Task) -> None:
         """Add a task to this pet's task dict (keyed by task_id)."""
         self.tasks[task.task_id] = task
+        logger.info("Added task '%s' (%s priority, %s) to %s", task.title, task.priority, task.frequency, self.name)
 
     def remove_task(self, task_id: str) -> None:
         """Remove a task by its unique ID in O(1), raising ValueError if not found."""
         if task_id not in self.tasks:
+            logger.warning("Tried to remove unknown task_id '%s' from %s", task_id, self.name)
             raise ValueError(f"No task with id '{task_id}' found for {self.name}")
+        title = self.tasks[task_id].title
         del self.tasks[task_id]
+        logger.info("Removed task '%s' from %s", title, self.name)
 
     def complete_task(self, task_id: str) -> Task | None:
         """Mark a task complete and, if it recurs, immediately register the next occurrence.
@@ -145,10 +154,12 @@ class Pet:
 
         task = self.tasks[task_id]
         task.mark_complete()
+        logger.info("Completed task '%s' for %s (frequency=%s)", task.title, self.name, task.frequency)
 
         next_task = task.next_occurrence()
         if next_task is not None:
             self.tasks[next_task.task_id] = next_task
+            logger.info("Created next occurrence of '%s' for %s", task.title, self.name)
 
         return next_task
 
@@ -180,6 +191,7 @@ class Schedule:
 
         Results are stored in self.plan and self.skipped; call explain() to print them.
         """
+        logger.info("Generating schedule for %s on %s", self.pet.name, self.date)
         pending = [t for t in self.pet.tasks.values() if not t.completed]
 
         # Sort key: priority (high first), then time-constrained tasks before "any",
@@ -240,6 +252,11 @@ class Schedule:
             # Advance clock by task duration + per-owner buffer; both count against the budget.
             current += timedelta(minutes=task.duration_minutes + buffer)
             used_minutes += task.duration_minutes + buffer
+
+        logger.info(
+            "Schedule complete for %s: %d task(s) scheduled, %d skipped",
+            self.pet.name, len(self.plan), len(self.skipped),
+        )
 
     def sort_by_time(self) -> list[PlanEntry]:
         """Return the plan entries sorted chronologically by their scheduled start_time.
@@ -313,6 +330,7 @@ def detect_conflicts(schedules: list[Schedule]) -> list[str]:
     No exceptions are raised — callers decide how to present the warnings.
     """
     warnings: list[str] = []
+    logger.info("Running conflict detection across %d schedule(s)", len(schedules))
 
     # Within each individual schedule
     for sched in schedules:
@@ -337,4 +355,9 @@ def detect_conflicts(schedules: list[Schedule]) -> list[str]:
                             f"{sched_b.pet.name}'s '{b.task.title}' ({b.start_time}–{b_end_str})"
                         )
 
+    if warnings:
+        for w in warnings:
+            logger.warning("%s", w)
+    else:
+        logger.info("No conflicts found")
     return warnings

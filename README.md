@@ -72,7 +72,18 @@ Confidence level: 4 / 5 stars. Core scheduling logic is fully tested. The UI lay
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+export GROQ_API_KEY=your_key_here   # Windows: set GROQ_API_KEY=your_key_here
 ```
+
+Get a free API key (no credit card required) at [console.groq.com](https://console.groq.com).
+
+### Run
+
+```bash
+streamlit run app.py
+```
+
+Logs are written to `pawpal.log` in the project directory.
 
 ### Suggested workflow
 
